@@ -131,3 +131,22 @@ async def test_malformed_provider_envelopes_return_controlled_errors(settings, b
         httpx.MockTransport(lambda request: httpx.Response(200, content=json.dumps(body))))
     with pytest.raises(ServiceError, match="gemini_invalid_response"):
         await analyzer.analyze("entry", [])
+
+
+async def test_gemini_response_is_bounded_while_streaming(settings):
+    class LargeResponse(httpx.AsyncByteStream):
+        closed = False
+
+        async def __aiter__(self):
+            yield b" " * 110000
+            raise AssertionError("Oversized responses must not be read to completion")
+
+        async def aclose(self):
+            self.closed = True
+
+    stream = LargeResponse()
+    analyzer = GeminiAnalyzer(replace(settings, gemini_key="mock-only"), httpx.MockTransport(
+        lambda request: httpx.Response(200, stream=stream)))
+    with pytest.raises(ServiceError, match="gemini_invalid_response"):
+        await analyzer.analyze("entry", [])
+    assert stream.closed

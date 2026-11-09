@@ -43,19 +43,22 @@ class GeminiAnalyzer:
         }
         try:
             async with httpx.AsyncClient(timeout=self.settings.gemini_timeout, transport=self.transport) as client:
-                response = await client.post(
+                async with client.stream("POST",
                     f"https://generativelanguage.googleapis.com/v1beta/models/{self.settings.gemini_model}:generateContent",
                     headers={"x-goog-api-key": self.settings.gemini_key}, json=payload,
-                )
-            if response.status_code == 429:
-                raise ServiceError("gemini_quota_exceeded", 429)
-            if response.status_code in (401, 403):
-                raise ServiceError("gemini_access_denied")
-            if response.status_code >= 400:
-                raise ServiceError("gemini_unavailable")
-            data = response.json()
-            if len(response.content) > 100000:
-                raise ServiceError("gemini_invalid_response", 502)
+                ) as response:
+                    if response.status_code == 429:
+                        raise ServiceError("gemini_quota_exceeded", 429)
+                    if response.status_code in (401, 403):
+                        raise ServiceError("gemini_access_denied")
+                    if response.status_code >= 400:
+                        raise ServiceError("gemini_unavailable")
+                    body = bytearray()
+                    async for chunk in response.aiter_bytes(chunk_size=8192):
+                        body.extend(chunk)
+                        if len(body) > 100000:
+                            raise ServiceError("gemini_invalid_response", 502)
+            data = json.loads(body)
             if not isinstance(data, dict):
                 raise ServiceError("gemini_invalid_response", 502)
             candidates = data.get("candidates")
