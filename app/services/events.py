@@ -21,7 +21,9 @@ return value
 
 class RedisEventService:
     def __init__(self, url: str, manager):
-        self.redis = Redis.from_url(url, decode_responses=True, socket_connect_timeout=2, socket_timeout=3)
+        self.client_name = f"copilot:{uuid4()}"
+        self.redis = Redis.from_url(url, decode_responses=True, socket_connect_timeout=2,
+                                    socket_timeout=3, client_name=self.client_name)
         self.manager = manager
         self.task = None
         self.connected = False
@@ -50,6 +52,12 @@ class RedisEventService:
                         try:
                             payload = json.loads(message["data"])
                             user_id = message["channel"].removeprefix("copilot:users:")
+                            if payload["user_id"] != user_id:
+                                continue
+                            if payload["type"] in {"auth.revoked", "auth.session_revoked"}:
+                                session_id = payload["data"].get("session_id") if payload["type"] == "auth.session_revoked" else None
+                                await self.manager.close_user(user_id, session_id)
+                                continue
                             if payload["user_id"] == user_id and payload["type"] in {
                                 "journal.created", "journal.updated", "journal.deleted",
                                 "analysis.completed", "recommendation.created", "safety.alert",

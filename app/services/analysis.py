@@ -3,7 +3,7 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 from redis.exceptions import RedisError
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.core.errors import ServiceError
 from app.models.entities import EmotionalAnalysis, JournalEntry
@@ -57,12 +57,19 @@ class AnalysisService:
             entry = UserRepository(self.db, JournalEntry).get(entry_id, user.id)
             if entry.version != version:
                 raise HTTPException(409, "entry_changed_during_analysis")
+            locked = self.db.execute(update(JournalEntry).where(
+                JournalEntry.id == entry_id, JournalEntry.user_id == user.id,
+                JournalEntry.version == version,
+            ).values(updated_at=entry.updated_at))
+            if locked.rowcount != 1:
+                self.db.rollback()
+                raise HTTPException(409, "entry_changed_during_analysis")
             deterministic = self.safety.detect(content)
             ai_risk = result.risk_level
             risk = max((deterministic.level, ai_risk), key=lambda level: RISK_LEVELS[level])
             result.risk_level = risk
             pending = LibraryService(self.db, self.settings).has_pending_risk(user.id)
-            if risk not in ("none", "low") or pending:
+            if risk != "none" or pending:
                 result.recommended_categories = []
             analysis = EmotionalAnalysis(user_id=user.id, entry_id=entry.id, entry_version=version,
                                           result=result.model_dump(mode="json"), model=self.settings.gemini_model)

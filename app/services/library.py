@@ -17,14 +17,24 @@ class LibraryService:
             SafetyAlert.user_id == user_id, SafetyAlert.acknowledged_at.is_(None),
         ).limit(1)) is not None
 
+    def has_current_risk(self, user_id: str) -> bool:
+        latest_entry = self.db.scalar(select(JournalEntry).where(JournalEntry.user_id == user_id)
+                                      .order_by(JournalEntry.created_at.desc()).limit(1))
+        latest_analysis = self.db.scalar(select(EmotionalAnalysis).where(EmotionalAnalysis.user_id == user_id)
+                                         .order_by(EmotionalAnalysis.created_at.desc()).limit(1))
+        return bool(
+            (latest_entry and self.safety.detect(latest_entry.content).level != "none")
+            or (latest_analysis and latest_analysis.result["risk_level"] != "none")
+        )
+
     def recommendations(self, user, analysis=None) -> dict:
         analysis = analysis or self.db.scalar(select(EmotionalAnalysis).where(
             EmotionalAnalysis.user_id == user.id,
         ).order_by(EmotionalAnalysis.created_at.desc()).limit(1))
-        risk = self.has_pending_risk(user.id)
+        risk = self.has_pending_risk(user.id) or self.has_current_risk(user.id)
         if analysis:
             entry = self.db.get(JournalEntry, analysis.entry_id)
-            risk = risk or analysis.result["risk_level"] not in ("none", "low")
+            risk = risk or analysis.result["risk_level"] != "none"
             risk = risk or self.safety.detect(entry.content).level != "none"
             if entry.version != analysis.entry_version:
                 return {"items": [], "reason": "analysis_outdated", "safety_guidance": self.safety.guidance(user.country, "moderate") if risk else None}
@@ -43,7 +53,7 @@ class LibraryService:
             raise HTTPException(404, "not_found")
         if data.analysis_id:
             UserRepository(self.db, EmotionalAnalysis).get(data.analysis_id, user.id)
-        if self.has_pending_risk(user.id):
+        if self.has_pending_risk(user.id) or self.has_current_risk(user.id):
             raise HTTPException(409, {"code": "safety_priority", "guidance": self.safety.guidance(user.country, "high")})
         completion = ExerciseCompletion(user_id=user.id, exercise_id=exercise_id,
                                         analysis_id=data.analysis_id, notes=data.notes)

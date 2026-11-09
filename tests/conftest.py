@@ -12,12 +12,16 @@ from app.main import create_app
 def settings(tmp_path):
     return Settings(database_url=f"sqlite:///{tmp_path / 'test.db'}",
                     jwt_secret="test-only-secret-with-at-least-32-characters",
+                    gemini_key="",
                     redis_url=os.getenv("TEST_REDIS_URL", "redis://127.0.0.1:6379/15"))
 
 
 @pytest.fixture
 def app(settings):
     redis = Redis.from_url(settings.redis_url)
+    connection = redis.connection_pool.connection_kwargs
+    if connection.get("db") != 15 or connection.get("host") not in ("localhost", "127.0.0.1"):
+        raise RuntimeError("Tests require a local Redis database 15 dedicated exclusively to tests")
     redis.flushdb()
     application = create_app(settings)
     yield application

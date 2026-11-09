@@ -6,14 +6,17 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
+from sqlalchemy.orm.exc import StaleDataError
 
+from app.core.body_limit import BodyLimitMiddleware
 from app.core.config import Settings, get_settings
 from app.core.errors import ServiceError
 from app.database.session import Base, create_database
 from app.ai.gemini import GeminiAnalyzer
-from app.routers import analysis, auth, journal, library
+from app.routers import analysis, auth, journal, library, tracking
 from app.services.events import RedisEventService
 from app.websocket.manager import ConnectionManager
+from app.websocket.router import router as websocket_router
 from seed.library import seed_library
 
 
@@ -43,6 +46,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.manager = manager
     app.state.events = events
     app.state.analyzer = GeminiAnalyzer(settings)
+    app.add_middleware(BodyLimitMiddleware)
     app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins,
                        allow_credentials=False, allow_methods=["GET", "POST", "PATCH", "DELETE"],
                        allow_headers=["Authorization", "Content-Type"])
@@ -51,6 +55,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def service_error(request: Request, error: ServiceError):
         headers = {"Retry-After": "60"} if error.status_code == 429 else {}
         return JSONResponse({"detail": error.code}, status_code=error.status_code, headers=headers)
+
+    @app.exception_handler(StaleDataError)
+    async def stale_write(request: Request, error: StaleDataError):
+        return JSONResponse({"detail": "concurrent_update"}, status_code=409)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, error: RequestValidationError):
@@ -80,4 +88,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(journal.router, prefix="/api")
     app.include_router(analysis.router, prefix="/api")
     app.include_router(library.router, prefix="/api")
+    app.include_router(tracking.router, prefix="/api")
+    app.include_router(websocket_router, prefix="/api")
     return app
