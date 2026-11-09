@@ -112,6 +112,10 @@ class RedisEventService:
             return False
 
     async def rate_limit(self, key: str, limit: int, seconds: int) -> None:
+        if not isinstance(key, str) or not key or type(limit) is not int or type(seconds) is not int:
+            raise ValueError("invalid_rate_limit_parameters")
+        if limit < 1 or seconds < 1:
+            raise ValueError("rate_limit_values_must_be_positive")
         try:
             count = await self.redis.eval(RATE_SCRIPT, 1, f"copilot:limits:{key}", seconds)
         except (RedisError, OSError):

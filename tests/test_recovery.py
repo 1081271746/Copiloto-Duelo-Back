@@ -121,3 +121,18 @@ async def test_subscriber_start_and_stop_are_idempotent(settings):
     assert not service.connected and not service.ready.is_set()
     assert not await service.healthy()
     await service.stop()
+
+
+@pytest.mark.parametrize("arguments", [
+    ("", 1, 60), ("key", 0, 60), ("key", 1, 0),
+    ("key", True, 60), ("key", 1.5, 60), ("key", 1, -1),
+])
+async def test_invalid_rate_limit_parameters_never_reach_redis(settings, arguments):
+    service = RedisEventService(settings.redis_url, ConnectionManager())
+    service.redis.eval = AsyncMock()
+    try:
+        with pytest.raises(ValueError):
+            await service.rate_limit(*arguments)
+        service.redis.eval.assert_not_awaited()
+    finally:
+        await service.stop()
