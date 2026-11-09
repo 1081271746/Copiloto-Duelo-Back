@@ -43,6 +43,12 @@ def authenticate(token: str, db, settings: Settings) -> tuple[User, dict]:
         claims = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"],
                             issuer=settings.jwt_issuer, audience=settings.jwt_audience,
                             options={"require": ["exp", "iat", "sub", "jti", "ver", "iss", "aud"]})
+        if not isinstance(claims["sub"], str) or not claims["sub"]:
+            raise ValueError()
+        if not isinstance(claims["jti"], str) or not claims["jti"]:
+            raise ValueError()
+        if type(claims["ver"]) is not int or claims["ver"] < 0:
+            raise ValueError()
         user = db.get(User, claims["sub"])
         session = db.get(TokenSession, claims["jti"])
         if not user or not session or session.revoked or session.user_id != user.id:

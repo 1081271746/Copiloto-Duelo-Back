@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 import jwt
+import pytest
 from sqlalchemy import select
 
 from app.models.entities import User
@@ -56,3 +57,14 @@ def test_validation_never_echoes_password(client):
 
 def test_health(client):
     assert client.get("/api/healthz").json()["redis"] is True
+
+
+@pytest.mark.parametrize(("field", "value"), [
+    ("ver", False), ("ver", -1), ("ver", "0"), ("jti", ""), ("sub", ""),
+])
+def test_invalid_claim_shapes_are_rejected(client, user, settings, field, value):
+    original = user["headers"]["Authorization"].split()[1]
+    claims = jwt.decode(original, settings.jwt_secret, algorithms=["HS256"], audience=settings.jwt_audience)
+    claims[field] = value
+    token = jwt.encode(claims, settings.jwt_secret, algorithm="HS256")
+    assert client.get("/api/users/me", headers={"Authorization": f"Bearer {token}"}).status_code == 401
