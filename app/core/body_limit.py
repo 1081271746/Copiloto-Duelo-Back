@@ -3,6 +3,8 @@ from starlette.responses import JSONResponse
 
 class BodyLimitMiddleware:
     def __init__(self, app, max_bytes: int = 65536):
+        if max_bytes < 1:
+            raise ValueError("max_bytes_must_be_positive")
         self.app = app
         self.max_bytes = max_bytes
 
@@ -12,7 +14,7 @@ class BodyLimitMiddleware:
             return
         length = dict(scope["headers"]).get(b"content-length", b"0")
         try:
-            oversized = int(length) > self.max_bytes
+            oversized = not 0 <= int(length) <= self.max_bytes
         except ValueError:
             oversized = True
         if oversized:

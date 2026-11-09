@@ -125,3 +125,34 @@ def test_expired_analysis_lock_never_releases_a_new_owner(client, app, settings,
     assert client.post(f"/api/journal/{entry_id}/analyze", headers=user["headers"]).status_code == 201
     with Redis.from_url(settings.redis_url) as redis:
         assert redis.get(lock_key) == b"successor-owner"
+
+
+async def test_streamed_body_limit_ignores_forged_small_length():
+    from unittest.mock import AsyncMock
+    from app.core.body_limit import BodyLimitMiddleware
+    downstream, send = AsyncMock(), AsyncMock()
+    receive = AsyncMock(side_effect=[
+        {"type": "http.request", "body": b"x" * 40000, "more_body": True},
+        {"type": "http.request", "body": b"x" * 40000, "more_body": False},
+    ])
+    await BodyLimitMiddleware(downstream)({"type": "http", "headers": [(b"content-length", b"1")]}, receive, send)
+    downstream.assert_not_awaited()
+    assert send.call_args_list[0].args[0]["status"] == 413
+
+
+def test_negative_content_length_is_rejected(client):
+    response = client.post("/api/auth/login", content="{}", headers={"Content-Length": "-1"})
+    assert response.status_code == 413
+
+
+async def test_disconnected_upload_never_reaches_business_logic():
+    from unittest.mock import AsyncMock
+    from app.core.body_limit import BodyLimitMiddleware
+    downstream, send = AsyncMock(), AsyncMock()
+    receive = AsyncMock(side_effect=[
+        {"type": "http.request", "body": b"partial", "more_body": True},
+        {"type": "http.disconnect"},
+    ])
+    await BodyLimitMiddleware(downstream)({"type": "http", "headers": []}, receive, send)
+    downstream.assert_not_awaited()
+    send.assert_not_awaited()
