@@ -89,3 +89,39 @@ def test_analysis_context_is_bounded_and_chronological(client, app, settings, us
     assert len(previous) == 5
     assert all(len(item["content"]) == 2000 for item in previous)
     assert [item["content"].split()[0] for item in previous] == [f"prior-{age}" for age in range(1, 6)]
+
+
+def test_entry_deleted_during_analysis_does_not_leave_orphans(client, app, settings, user):
+    from app.schemas.analysis import AnalysisResult
+    from tests.test_analysis import RESULT
+    configure_analyzer(app, settings)
+    entry_id = create_entry(client, user).json()["entry"]["id"]
+
+    async def remove_entry(content, previous):
+        with app.state.session_factory() as db:
+            db.delete(db.get(JournalEntry, entry_id))
+            db.commit()
+        return AnalysisResult.model_validate(RESULT)
+
+    app.state.analyzer.analyze.side_effect = remove_entry
+    assert client.post(f"/api/journal/{entry_id}/analyze", headers=user["headers"]).status_code == 404
+    assert client.get("/api/analyses", headers=user["headers"]).json() == []
+    with Redis.from_url(settings.redis_url) as redis:
+        assert redis.get(f"copilot:analysis:{entry_id}") is None
+
+
+def test_expired_analysis_lock_never_releases_a_new_owner(client, app, settings, user):
+    from app.schemas.analysis import AnalysisResult
+    from tests.test_analysis import RESULT
+    configure_analyzer(app, settings)
+    entry_id = create_entry(client, user).json()["entry"]["id"]
+    lock_key = f"copilot:analysis:{entry_id}"
+
+    async def replace_lock(content, previous):
+        await app.state.events.redis.set(lock_key, "successor-owner", ex=60)
+        return AnalysisResult.model_validate(RESULT)
+
+    app.state.analyzer.analyze.side_effect = replace_lock
+    assert client.post(f"/api/journal/{entry_id}/analyze", headers=user["headers"]).status_code == 201
+    with Redis.from_url(settings.redis_url) as redis:
+        assert redis.get(lock_key) == b"successor-owner"
