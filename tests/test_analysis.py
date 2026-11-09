@@ -117,3 +117,17 @@ async def test_gemini_valid_response(settings):
     analyzer = GeminiAnalyzer(replace(settings, gemini_key="mock-only"), httpx.MockTransport(respond))
     result = await analyzer.analyze("content", [])
     assert result.risk_level == "none"
+
+
+@pytest.mark.parametrize("body", [
+    [], None, {"candidates": "wrong"}, {"candidates": [None]},
+    {"candidates": [{"finishReason": "STOP", "content": []}]},
+    {"candidates": [{"finishReason": "STOP", "content": {"parts": [None]}}]},
+    {"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": 17}]}}]},
+])
+async def test_malformed_provider_envelopes_return_controlled_errors(settings, body):
+    import json
+    analyzer = GeminiAnalyzer(replace(settings, gemini_key="mock-only"),
+        httpx.MockTransport(lambda request: httpx.Response(200, content=json.dumps(body))))
+    with pytest.raises(ServiceError, match="gemini_invalid_response"):
+        await analyzer.analyze("entry", [])

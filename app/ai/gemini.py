@@ -56,10 +56,22 @@ class GeminiAnalyzer:
             data = response.json()
             if len(response.content) > 100000:
                 raise ServiceError("gemini_invalid_response", 502)
+            if not isinstance(data, dict):
+                raise ServiceError("gemini_invalid_response", 502)
+            candidates = data.get("candidates")
+            if not isinstance(candidates, list) or not candidates or not isinstance(candidates[0], dict):
+                raise ServiceError("gemini_invalid_response", 502)
             candidate = data["candidates"][0]
             if candidate.get("finishReason") != "STOP":
                 raise ServiceError("gemini_incomplete_response", 502)
+            if not isinstance(candidate.get("content"), dict):
+                raise ServiceError("gemini_invalid_response", 502)
             parts = candidate["content"]["parts"]
+            if not isinstance(parts, list) or any(
+                not isinstance(part, dict) or ("text" in part and not isinstance(part["text"], str))
+                for part in parts
+            ):
+                raise ServiceError("gemini_invalid_response", 502)
             output = "".join(part.get("text", "") for part in parts if not part.get("thought"))
             return AnalysisResult.model_validate_json(output)
         except httpx.TimeoutException:
