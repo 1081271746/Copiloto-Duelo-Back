@@ -38,3 +38,19 @@ def test_secret_values_excluded_from_configuration_repr():
 def test_invalid_configuration_fails_before_serving(overrides):
     with pytest.raises(RuntimeError):
         Settings(**{"jwt_secret": "test-secret-with-at-least-32-characters", **overrides}).validate()
+
+
+def test_sqlite_preserves_instants_as_aware_utc():
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import literal, select
+    from app.database.session import UTCDateTime, create_database
+    engine, factory = create_database("sqlite:///:memory:")
+    original = datetime(2026, 1, 1, 12, tzinfo=timezone(timedelta(hours=-5)))
+    try:
+        with factory() as db:
+            result = db.scalar(select(literal(original, type_=UTCDateTime(timezone=True))))
+            assert result == original
+            assert result.hour == 17
+            assert result.tzinfo == timezone.utc
+    finally:
+        engine.dispose()

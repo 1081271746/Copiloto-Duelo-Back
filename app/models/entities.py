@@ -1,10 +1,10 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database.session import Base
+from app.database.session import Base, UTCDateTime as DateTime
 
 
 def utc_now() -> datetime:
