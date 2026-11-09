@@ -169,3 +169,17 @@ async def test_safety_blocked_provider_response_is_not_fabricated(settings):
     with pytest.raises(ServiceError) as error:
         await analyzer.analyze("entry", [])
     assert error.value.status_code == 502
+
+
+@pytest.mark.parametrize("change", [
+    {"emotions": []}, {"emotions": ["x" * 501]}, {"risk_level": "diagnosis"},
+    {"unexpected": "database command"},
+    {"categories": [{"category": "unknown", "confidence": 0.5, "rationale": "Test"}]},
+    {"categories": [{"category": "anger", "confidence": 1.1, "rationale": "Test"}]},
+    {"categories": [{"category": "anger", "confidence": float("nan"), "rationale": "Test"}]},
+    {"recommended_categories": ["unlisted"]},
+])
+def test_analysis_contract_rejects_uncontrolled_values(change):
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        AnalysisResult.model_validate({**RESULT, **change})
