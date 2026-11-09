@@ -10,9 +10,11 @@ from sqlalchemy import text
 from app.core.config import Settings, get_settings
 from app.core.errors import ServiceError
 from app.database.session import Base, create_database
-from app.routers import auth, journal
+from app.ai.gemini import GeminiAnalyzer
+from app.routers import analysis, auth, journal, library
 from app.services.events import RedisEventService
 from app.websocket.manager import ConnectionManager
+from seed.library import seed_library
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -25,6 +27,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         Base.metadata.create_all(engine)
+        with session_factory() as db:
+            seed_library(db)
         await events.start()
         yield
         await events.stop()
@@ -38,6 +42,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.session_factory = session_factory
     app.state.manager = manager
     app.state.events = events
+    app.state.analyzer = GeminiAnalyzer(settings)
     app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins,
                        allow_credentials=False, allow_methods=["GET", "POST", "PATCH", "DELETE"],
                        allow_headers=["Authorization", "Content-Type"])
@@ -73,4 +78,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(auth.router, prefix="/api")
     app.include_router(journal.router, prefix="/api")
+    app.include_router(analysis.router, prefix="/api")
+    app.include_router(library.router, prefix="/api")
     return app
