@@ -23,3 +23,17 @@ def test_crisis_blocks_generic_exercise_completion(client, user):
     output = client.get("/api/recommendations", headers=user["headers"]).json()
     assert output["items"] == []
     assert output["safety_guidance"]
+
+
+def test_library_pagination_and_country_filtering(client, user, other_user):
+    first = client.get("/api/exercises?limit=1", headers=user["headers"]).json()
+    second = client.get("/api/exercises?limit=1&offset=1", headers=user["headers"]).json()
+    assert first[0]["id"] != second[0]["id"]
+    assert client.get("/api/exercises?category=unknown", headers=user["headers"]).status_code == 422
+    assert client.get("/api/resources?category=missing", headers=user["headers"]).json() == []
+    client.patch("/api/users/me", headers=other_user["headers"], json={"country": "US"})
+    local = client.get("/api/resources", headers=user["headers"]).json()
+    international = client.get("/api/resources", headers=other_user["headers"]).json()
+    assert any(resource["country"] == "CO" for resource in local)
+    assert all(resource["country"] is None for resource in international)
+    assert len(local) > len(international)
