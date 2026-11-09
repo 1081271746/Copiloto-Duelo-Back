@@ -156,3 +156,32 @@ async def test_disconnected_upload_never_reaches_business_logic():
     await BodyLimitMiddleware(downstream)({"type": "http", "headers": []}, receive, send)
     downstream.assert_not_awaited()
     send.assert_not_awaited()
+
+
+def test_security_headers_cover_private_data_and_expected_errors(client, user):
+    for path, headers, expected in [
+        ("/api/users/me", user["headers"], 200),
+        ("/api/users/me", {}, 401),
+        ("/api/missing", {}, 404),
+        ("/api/docs", {}, 200),
+    ]:
+        response = client.get(path, headers=headers)
+        assert response.status_code == expected
+        assert response.headers["Cache-Control"] == "no-store"
+        assert response.headers["X-Content-Type-Options"] == "nosniff"
+        assert response.headers["Referrer-Policy"] == "no-referrer"
+
+
+def test_cors_preflight_keeps_security_headers_and_exact_origins(client):
+    allowed = client.options("/api/journal", headers={
+        "Origin": "http://localhost:4200", "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "Authorization,Content-Type",
+    })
+    assert allowed.status_code == 200
+    assert allowed.headers["Access-Control-Allow-Origin"] == "http://localhost:4200"
+    assert allowed.headers["Cache-Control"] == "no-store"
+    rejected = client.options("/api/journal", headers={
+        "Origin": "https://untrusted.example", "Access-Control-Request-Method": "POST",
+    })
+    assert rejected.status_code == 400
+    assert "Access-Control-Allow-Origin" not in rejected.headers

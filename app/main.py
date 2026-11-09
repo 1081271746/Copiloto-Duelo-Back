@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm.exc import StaleDataError
 
-from app.core.body_limit import BodyLimitMiddleware
+from app.core.body_limit import BodyLimitMiddleware, SecurityHeadersMiddleware
 from app.core.config import Settings, get_settings
 from app.core.errors import ServiceError
 from app.database.session import Base, create_database
@@ -50,6 +50,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins,
                        allow_credentials=False, allow_methods=["GET", "POST", "PATCH", "DELETE"],
                        allow_headers=["Authorization", "Content-Type"])
+    app.add_middleware(SecurityHeadersMiddleware)
 
     @app.exception_handler(ServiceError)
     async def service_error(request: Request, error: ServiceError):
