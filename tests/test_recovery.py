@@ -105,3 +105,19 @@ async def test_bad_internal_event_does_not_stop_subscription(settings):
         socket.send_text.assert_awaited_once()
     finally:
         await service.stop()
+
+
+async def test_subscriber_start_and_stop_are_idempotent(settings):
+    service = RedisEventService(settings.redis_url, ConnectionManager())
+    await service.start()
+    first_task = service.task
+    try:
+        await service.start()
+        assert service.task is first_task
+        assert await service.healthy()
+    finally:
+        await service.stop()
+    assert service.task is None
+    assert not service.connected and not service.ready.is_set()
+    assert not await service.healthy()
+    await service.stop()

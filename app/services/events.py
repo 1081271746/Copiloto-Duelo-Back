@@ -53,6 +53,10 @@ class RedisEventService:
         return payload
 
     async def start(self) -> None:
+        if self.task and not self.task.done():
+            return
+        self.connected = False
+        self.ready.clear()
         self.task = asyncio.create_task(self.listen())
         try:
             await asyncio.wait_for(self.ready.wait(), timeout=3)
@@ -116,15 +120,20 @@ class RedisEventService:
             raise ServiceError("rate_limit_exceeded", 429)
 
     async def healthy(self) -> bool:
+        if not self.connected:
+            return False
         try:
-            return bool(await self.redis.ping()) and self.connected
+            return bool(await self.redis.ping())
         except (RedisError, OSError):
             return False
 
     async def stop(self) -> None:
+        self.connected = False
+        self.ready.clear()
         if self.task:
             self.task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self.task
+            self.task = None
         await self.manager.close_all()
         await self.redis.aclose()
