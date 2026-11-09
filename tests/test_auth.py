@@ -108,3 +108,23 @@ def test_corrupted_password_hash_fails_closed(client, app, user):
     response = client.post("/api/auth/login", json={"email": "first@example.com", "password": user["password"]})
     assert response.status_code == 401
     assert response.json()["detail"] == "invalid_credentials"
+
+
+def test_logout_revokes_only_the_requested_session(client, user):
+    response = client.post("/api/auth/login", json={"email": "first@example.com", "password": user["password"]})
+    second = {"Authorization": f"Bearer {response.json()['access_token']}"}
+    assert client.post("/api/auth/logout", headers=user["headers"]).status_code == 204
+    assert client.get("/api/users/me", headers=user["headers"]).status_code == 401
+    assert client.get("/api/users/me", headers=second).status_code == 200
+
+
+def test_password_change_revokes_all_sessions_and_old_credentials(client, user):
+    response = client.post("/api/auth/login", json={"email": "first@example.com", "password": user["password"]})
+    second = {"Authorization": f"Bearer {response.json()['access_token']}"}
+    assert client.post("/api/users/me/password", headers=user["headers"], json={
+        "current_password": user["password"], "new_password": "ChangedPassword123!",
+    }).status_code == 204
+    assert client.get("/api/users/me", headers=second).status_code == 401
+    assert client.post("/api/auth/login", json={
+        "email": "first@example.com", "password": user["password"],
+    }).status_code == 401
