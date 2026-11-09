@@ -1,7 +1,10 @@
 import json
+import math
 import os
+import re
 from dataclasses import dataclass, field
 from functools import lru_cache
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
@@ -30,12 +33,42 @@ class Settings:
     )))
 
     def validate(self) -> None:
-        if len(self.jwt_secret) < 32:
+        if len(self.jwt_secret.strip()) < 32:
             raise RuntimeError("JWT_SECRET must contain at least 32 characters")
         if self.token_minutes < 1 or self.daily_limit < 1 or self.gemini_rpm < 1:
             raise RuntimeError("Configured limits must be positive")
-        if "*" in self.cors_origins:
+        if not math.isfinite(self.gemini_timeout) or not 0 < self.gemini_timeout <= 300:
+            raise RuntimeError("Gemini timeout must be finite and between 0 and 300 seconds")
+        if not self.jwt_issuer.strip() or not self.jwt_audience.strip():
+            raise RuntimeError("JWT issuer and audience are required")
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}", self.gemini_model):
+            raise RuntimeError("Invalid Gemini model identifier")
+        if not re.fullmatch(r"[A-Z]{2}", self.default_country):
+            raise RuntimeError("Invalid default country")
+        if not self.cors_origins or any("*" in origin for origin in self.cors_origins):
             raise RuntimeError("Explicit CORS origins are required")
+        for origin in self.cors_origins:
+            try:
+                parsed = urlsplit(origin)
+                parsed.port
+                valid = (parsed.scheme in ("http", "https") and parsed.hostname
+                         and not parsed.username and not parsed.password
+                         and not parsed.path and not parsed.query and not parsed.fragment)
+            except ValueError:
+                valid = False
+            if not valid:
+                raise RuntimeError("CORS entries must be exact HTTP origins")
+        if not isinstance(self.emergency_resources, dict):
+            raise RuntimeError("Emergency resources must be a country mapping")
+        for country, resources in self.emergency_resources.items():
+            if not re.fullmatch(r"[A-Z]{2}", country) or not isinstance(resources, dict):
+                raise RuntimeError("Invalid emergency resource configuration")
+            if any(not isinstance(value, str) or not value.strip() for value in resources.values()):
+                raise RuntimeError("Emergency resource values must be nonempty text")
+            if "support_url" in resources:
+                parsed = urlsplit(resources["support_url"])
+                if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password:
+                    raise RuntimeError("Invalid emergency support URL")
 
 
 @lru_cache
