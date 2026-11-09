@@ -150,3 +150,22 @@ async def test_gemini_response_is_bounded_while_streaming(settings):
     with pytest.raises(ServiceError, match="gemini_invalid_response"):
         await analyzer.analyze("entry", [])
     assert stream.closed
+
+
+@pytest.mark.parametrize("failure", [httpx.ConnectError, httpx.RemoteProtocolError])
+async def test_provider_network_errors_do_not_expose_details(settings, failure):
+    def disconnect(request):
+        raise failure("private provider diagnostic")
+    analyzer = GeminiAnalyzer(replace(settings, gemini_key="mock-only"), httpx.MockTransport(disconnect))
+    with pytest.raises(ServiceError) as error:
+        await analyzer.analyze("sensitive fictional journal", [])
+    assert error.value.code == "gemini_unavailable"
+    assert "private" not in str(error.value)
+
+
+async def test_safety_blocked_provider_response_is_not_fabricated(settings):
+    analyzer = GeminiAnalyzer(replace(settings, gemini_key="mock-only"), httpx.MockTransport(
+        lambda request: httpx.Response(200, json={"promptFeedback": {"blockReason": "SAFETY"}})))
+    with pytest.raises(ServiceError) as error:
+        await analyzer.analyze("entry", [])
+    assert error.value.status_code == 502
