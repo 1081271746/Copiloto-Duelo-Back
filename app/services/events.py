@@ -12,6 +12,11 @@ from app.core.errors import ServiceError
 
 
 logger = logging.getLogger(__name__)
+EVENT_TYPES = frozenset({
+    "journal.created", "journal.updated", "journal.deleted", "analysis.completed",
+    "recommendation.created", "safety.alert", "tracking.updated",
+    "auth.revoked", "auth.session_revoked",
+})
 RATE_SCRIPT = """
 local value = redis.call('INCR', KEYS[1])
 if value == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
@@ -28,6 +33,24 @@ class RedisEventService:
         self.task = None
         self.connected = False
         self.ready = asyncio.Event()
+
+    @staticmethod
+    def parse_event(raw: str, user_id: str) -> dict:
+        if not isinstance(raw, str) or len(raw.encode()) > 65536:
+            raise ValueError("invalid_event_size")
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError("invalid_event")
+        if payload.get("user_id") != user_id or not user_id:
+            raise ValueError("invalid_event_user")
+        event_type = payload.get("type")
+        if not isinstance(event_type, str) or event_type not in EVENT_TYPES:
+            raise ValueError("invalid_event_type")
+        if not isinstance(payload.get("data"), dict):
+            raise ValueError("invalid_event_data")
+        if event_type == "auth.session_revoked" and not isinstance(payload["data"].get("session_id"), str):
+            raise ValueError("invalid_event_session")
+        return payload
 
     async def start(self) -> None:
         self.task = asyncio.create_task(self.listen())
@@ -50,10 +73,8 @@ class RedisEventService:
                         if message["type"] != "pmessage":
                             continue
                         try:
-                            payload = json.loads(message["data"])
                             user_id = message["channel"].removeprefix("copilot:users:")
-                            if payload["user_id"] != user_id:
-                                continue
+                            payload = self.parse_event(message["data"], user_id)
                             if payload["type"] in {"auth.revoked", "auth.session_revoked"}:
                                 session_id = payload["data"].get("session_id") if payload["type"] == "auth.session_revoked" else None
                                 await self.manager.close_user(user_id, session_id)

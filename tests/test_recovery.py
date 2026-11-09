@@ -70,3 +70,38 @@ def test_analysis_history_excludes_other_users_entries(client, app, settings, us
     history = app.state.analyzer.analyze.call_args.args[1]
     assert len(history) == 1
     assert history[0]["content"] == "My earlier reflection"
+
+
+@pytest.mark.parametrize("body", [
+    [], None, {"user_id": "other", "type": "tracking.updated", "data": {}},
+    {"user_id": "user", "type": [], "data": {}},
+    {"user_id": "user", "type": "tracking.updated", "data": []},
+    {"user_id": "user", "type": "auth.session_revoked", "data": {}},
+])
+def test_invalid_internal_events_are_rejected(body):
+    import json
+    with pytest.raises(ValueError):
+        RedisEventService.parse_event(json.dumps(body), "user")
+
+
+async def test_bad_internal_event_does_not_stop_subscription(settings):
+    import json
+    manager = ConnectionManager()
+    service = RedisEventService(settings.redis_url, manager)
+    socket = AsyncMock()
+    socket.scope = {}
+    manager.register("event-user", socket)
+    await service.start()
+    try:
+        await service.redis.publish("copilot:users:event-user", json.dumps({
+            "user_id": "event-user", "type": "auth.session_revoked", "data": [],
+        }))
+        await service.publish("event-user", "tracking.updated", {})
+        for _ in range(100):
+            if socket.send_text.await_count:
+                break
+            await asyncio.sleep(0.01)
+        assert service.connected
+        socket.send_text.assert_awaited_once()
+    finally:
+        await service.stop()
