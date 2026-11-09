@@ -10,7 +10,8 @@ RISK_LEVELS = {"none": 0, "low": 1, "moderate": 2, "high": 3, "critical": 4}
 
 def normalize_text(text: str) -> str:
     normalized = unicodedata.normalize("NFKD", text.lower())
-    return "".join(char for char in normalized if not unicodedata.combining(char))
+    unaccented = "".join(char for char in normalized if not unicodedata.combining(char))
+    return " ".join(unaccented.split())
 
 
 @dataclass(frozen=True)

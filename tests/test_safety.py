@@ -27,3 +27,12 @@ def test_unknown_country_has_safe_fallback(settings):
     assert guidance["location_configured"] is False
     assert guidance["resources"] == {}
     assert guidance["fallback"]
+
+
+@pytest.mark.parametrize(("text", "level"), [
+    ("No   quiero\nseguir\tviviendo", "high"),
+    ("YA\nTOMÉ todas las PASTILLAS", "critical"),
+    ("Soy\u00a0una\u2003carga", "moderate"),
+])
+def test_whitespace_and_unicode_do_not_hide_risk(settings, text, level):
+    assert SafetyService(settings).detect(text).level == level
