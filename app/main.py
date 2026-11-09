@@ -10,7 +10,7 @@ from sqlalchemy import text
 from app.core.config import Settings, get_settings
 from app.core.errors import ServiceError
 from app.database.session import Base, create_database
-from app.routers import auth
+from app.routers import auth, journal
 from app.services.events import RedisEventService
 from app.websocket.manager import ConnectionManager
 
@@ -72,4 +72,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "disclaimer": "Emotional support only. Not a substitute for professional health care."}
 
     app.include_router(auth.router, prefix="/api")
+    app.include_router(journal.router, prefix="/api")
     return app
