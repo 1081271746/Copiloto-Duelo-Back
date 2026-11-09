@@ -69,3 +69,23 @@ def test_login_rate_limit(client, settings):
     response = client.post("/api/auth/login", json={"email": "unknown@example.com", "password": "invalid"})
     assert response.status_code == 429
     assert "Retry-After" in response.headers
+
+
+def test_analysis_context_is_bounded_and_chronological(client, app, settings, user):
+    from datetime import timedelta
+    from app.models.entities import utc_now
+    configure_analyzer(app, settings)
+    now = utc_now()
+    with app.state.session_factory() as db:
+        for age in range(1, 9):
+            db.add(JournalEntry(user_id=user["id"], content=f"prior-{age} " + "x" * 2500,
+                               emotional_state="sadness", recorded_at=now - timedelta(days=age)))
+        db.add(JournalEntry(user_id=user["id"], content="Future reflection",
+                            emotional_state="sadness", recorded_at=now + timedelta(days=1)))
+        db.commit()
+    entry_id = create_entry(client, user).json()["entry"]["id"]
+    assert client.post(f"/api/journal/{entry_id}/analyze", headers=user["headers"]).status_code == 201
+    previous = app.state.analyzer.analyze.call_args.args[1]
+    assert len(previous) == 5
+    assert all(len(item["content"]) == 2000 for item in previous)
+    assert [item["content"].split()[0] for item in previous] == [f"prior-{age}" for age in range(1, 6)]
