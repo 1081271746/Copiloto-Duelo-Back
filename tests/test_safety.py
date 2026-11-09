@@ -36,3 +36,11 @@ def test_unknown_country_has_safe_fallback(settings):
 ])
 def test_whitespace_and_unicode_do_not_hide_risk(settings, text, level):
     assert SafetyService(settings).detect(text).level == level
+
+
+@pytest.mark.parametrize(("text", "level"), [
+    ("I don't want to live", "high"), ("I don’t want to be alive", "high"),
+    ("I wish I were dead", "moderate"), ("I wish I wouldn't wake up", "moderate"),
+])
+def test_additional_explicit_english_risk_expressions(settings, text, level):
+    assert SafetyService(settings).detect(text).level == level

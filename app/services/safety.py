@@ -40,11 +40,13 @@ class SafetyService:
             r"\b(no quiero|no deseo|no vale la pena|no puedo)\s+(seguir )?(vivir|viviendo)\b",
             r"\b(me estoy|me he|me)\s+(cortando|cortado|lastimando|lastime)\b",
             r"\b(kill myself|suicid\w*|self.harm|end my life|want to die|hurt myself)\b",
+            r"\b(i do not|i don['’]t) want to (live|be alive)\b",
         ]
         moderate_patterns = [
             r"\b(no puedo mas|no hay salida|soy una carga|nada tiene sentido|sin esperanza)\b",
             r"\b(estar\w* mejor sin mi|mejor si no estuviera|ojala no despertara|no despertar)\b",
             r"\b(hopeless|better off without me|wish i would not wake up)\b",
+            r"\b(i wish i (was|were) dead|wish i (would not|wouldn['’]t|did not|didn['’]t) wake up)\b",
         ]
         for level, patterns in [("critical", critical_patterns), ("high", high_patterns), ("moderate", moderate_patterns)]:
             codes = [f"{level}_{index + 1}" for index, pattern in enumerate(patterns) if re.search(pattern, normalized)]
