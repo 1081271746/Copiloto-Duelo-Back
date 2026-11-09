@@ -37,3 +37,22 @@ def test_library_pagination_and_country_filtering(client, user, other_user):
     assert any(resource["country"] == "CO" for resource in local)
     assert all(resource["country"] is None for resource in international)
     assert len(local) > len(international)
+
+
+def test_recommended_exercises_keep_their_analysis_link(client, app, settings, user):
+    from tests.test_analysis import configure_analyzer
+    configure_analyzer(app, settings)
+    entry_id = create_entry(client, user).json()["entry"]["id"]
+    analyzed = client.post(f"/api/journal/{entry_id}/analyze", headers=user["headers"]).json()
+    recommendations = client.get("/api/recommendations", headers=user["headers"]).json()
+    assert recommendations["reason"] == "analysis_based"
+    assert recommendations["items"] == analyzed["recommendations"]
+    exercise_id = recommendations["items"][0]["id"]
+    completion = client.post(f"/api/exercises/{exercise_id}/complete", headers=user["headers"],
+                             json={"analysis_id": analyzed["analysis"]["id"]})
+    assert completion.status_code == 201
+    history = client.get("/api/exercise-history", headers=user["headers"]).json()
+    assert history[0]["analysis_id"] == analyzed["analysis"]["id"]
+    assert history[0]["exercise_id"] == exercise_id
+    counts = client.get("/api/tracking/summary", headers=user["headers"]).json()["counts"]
+    assert counts["completed_exercises"] == 1 and counts["analyses"] == 1
