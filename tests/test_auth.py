@@ -79,3 +79,32 @@ def test_expired_database_session_overrides_valid_jwt(client, app, user, setting
         session.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
         db.commit()
     assert client.get("/api/users/me", headers=user["headers"]).status_code == 401
+
+
+@pytest.mark.parametrize("mutation", ["issuer", "audience", "signature", "algorithm", "missing_exp"])
+def test_jwt_trust_boundaries(client, user, settings, mutation):
+    original = user["headers"]["Authorization"].split()[1]
+    claims = jwt.decode(original, settings.jwt_secret, algorithms=["HS256"], audience=settings.jwt_audience)
+    key, algorithm = settings.jwt_secret, "HS256"
+    if mutation == "issuer":
+        claims["iss"] = "untrusted-issuer"
+    elif mutation == "audience":
+        claims["aud"] = "different-api"
+    elif mutation == "signature":
+        key = "untrusted-key-with-more-than-32-characters"
+    elif mutation == "algorithm":
+        key, algorithm = "", "none"
+    else:
+        claims.pop("exp")
+    forged = jwt.encode(claims, key, algorithm=algorithm)
+    assert client.get("/api/users/me", headers={"Authorization": f"Bearer {forged}"}).status_code == 401
+
+
+def test_corrupted_password_hash_fails_closed(client, app, user):
+    with app.state.session_factory() as db:
+        account = db.get(User, user["id"])
+        account.password_hash = "not-an-argon2-hash"
+        db.commit()
+    response = client.post("/api/auth/login", json={"email": "first@example.com", "password": user["password"]})
+    assert response.status_code == 401
+    assert response.json()["detail"] == "invalid_credentials"
