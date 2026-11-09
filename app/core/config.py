@@ -12,12 +12,12 @@ from dotenv import load_dotenv
 @dataclass(frozen=True)
 class Settings:
     environment: str = field(default_factory=lambda: os.getenv("APP_ENV", "development"))
-    database_url: str = field(default_factory=lambda: os.getenv("APP_DATABASE_URL", "sqlite:///./copilot.db"))
+    database_url: str = field(default_factory=lambda: os.getenv("APP_DATABASE_URL", "sqlite:///./copilot.db"), repr=False)
     jwt_secret: str = field(default_factory=lambda: os.getenv("JWT_SECRET") or os.getenv("SESSION_SECRET", ""), repr=False)
     jwt_issuer: str = field(default_factory=lambda: os.getenv("JWT_ISSUER", "grief-copilot"))
     jwt_audience: str = field(default_factory=lambda: os.getenv("JWT_AUDIENCE", "grief-copilot-api"))
     token_minutes: int = field(default_factory=lambda: int(os.getenv("ACCESS_TOKEN_MINUTES", "30")))
-    redis_url: str = field(default_factory=lambda: os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"))
+    redis_url: str = field(default_factory=lambda: os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"), repr=False)
     cors_origins: list[str] = field(default_factory=lambda: [
         origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:4200").split(",") if origin.strip()
     ])

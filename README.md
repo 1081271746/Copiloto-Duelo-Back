@@ -307,3 +307,70 @@ Angular puede consumir JSON mediante Bearer JWT y usar el protocolo WebSocket de
 - Definir procesos de incidentes; esta API no promete disponibilidad clínica ni atención de crisis.
 
 Los datos universitarios de demostración no convierten la aplicación en un servicio de salud validado.
+
+## 14. Operación, compatibilidad y comprobaciones de mantenimiento
+
+### Cambios compatibles y configuración
+
+Las mejoras de mantenimiento conservan las carpetas, las rutas HTTP, el protocolo de eventos públicos y las tablas existentes. No se añadieron dependencias ni se trasladaron módulos. Los rechazos nuevos se limitan a configuración inválida, mensajes malformados o credenciales inconsistentes.
+
+- `GEMINI_TIMEOUT_SECONDS` debe ser finito, mayor que cero y como máximo 300 segundos.
+- Emisor y audiencia JWT no pueden estar vacíos; el secreto tampoco puede consistir en espacios.
+- Los orígenes CORS deben tener la forma `https://dominio:puerto`, sin rutas, credenciales, fragmentos ni comodines. Las solicitudes preflight conservan su funcionamiento.
+- Los recursos de emergencia deben ser un objeto por país con código de dos letras mayúsculas, textos no vacíos y enlaces HTTP/HTTPS sin credenciales.
+- Los nombres de modelo no aceptan rutas ni parámetros de URL.
+- Las representaciones de configuración ocultan secretos y conexiones SQL/Redis, porque estas últimas también pueden contener credenciales.
+
+El acceso se contrasta tanto con la expiración JWT como con la sesión persistida. Cerrar una sesión no revoca otras sesiones del mismo usuario; cambiar la contraseña sí las revoca todas. La misma distinción se comprueba para conexiones WebSocket.
+
+Las fechas nuevas se normalizan a UTC antes de persistir y se recuperan con zona horaria. Esto corrige la pérdida del desplazamiento horario en SQLite sin alterar columnas. Las fechas históricas guardadas sin zona se interpretan como UTC; si una instalación antigua guardó horas locales, debe revisarlas antes de asumir que representan UTC. No se modifica automáticamente el contenido histórico.
+
+Los datos privados y los errores HTTP esperados incluyen `Cache-Control: no-store`, `X-Content-Type-Options: nosniff` y `Referrer-Policy: no-referrer`. Esto no sustituye HTTPS, un almacenamiento seguro del token ni las políticas de privacidad.
+
+### Copias de seguridad de SQLite
+
+No copies sin coordinación el archivo de una base que está recibiendo escrituras. Para una copia consistente puedes usar la función de respaldo de SQLite desde el directorio del backend:
+
+```bash
+python - <<'PY'
+import sqlite3
+from contextlib import closing
+
+with closing(sqlite3.connect("copilot.db")) as source:
+    with closing(sqlite3.connect("copilot-backup.db")) as destination:
+        source.backup(destination)
+        assert destination.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+print("Copia consistente verificada")
+PY
+```
+
+La copia contiene información sensible aunque no esté en Git. Protégela con controles de acceso, cifrado y una política de retención; no la adjuntes a incidencias ni la publiques. El ejemplo usa el archivo SQLite predeterminado: si cambiaste `APP_DATABASE_URL`, adapta la ubicación deliberadamente.
+
+Para restaurar, detén todas las instancias, conserva primero una copia de la base actual y verifica la integridad del respaldo. Reemplazar la base elimina los cambios posteriores a ese respaldo; no se debe ejecutar esa operación automáticamente ni con el servicio recibiendo escrituras.
+
+### Errores y reintentos del cliente
+
+| Estado | Acción recomendada |
+|---|---|
+| `401` | Volver a autenticar; no repetir indefinidamente el mismo token |
+| `404` | Tratar el recurso como inexistente o no autorizado; no revela su propietario |
+| `409` | Consultar la versión actual o esperar al análisis en curso antes de decidir un nuevo intento |
+| `413` | Reducir el cuerpo; reenviarlo igual seguirá fallando |
+| `422` | Corregir campos según el contrato; la respuesta no repite el contenido enviado |
+| `429` | Respetar `Retry-After` y reducir la frecuencia |
+| `502`, `503`, `504` en análisis | Mantener la entrada ya guardada, mostrar indisponibilidad y ofrecer reintento con espera |
+
+Crear entradas o registrar ejercicios no es idempotente: no repitas automáticamente un `POST` tras perder la conexión sin comprobar primero el historial. Un bloqueo de análisis impide ejecuciones simultáneas para esa entrada, pero no deduplica intentos sucesivos ya finalizados.
+
+Una edición vacía del diario conserva versión y fecha, y no publica un evento nuevo. Borrar una entrada no borra el registro de ejercicios realizados, pero elimina su vínculo al análisis eliminado. Los errores de Gemini no producen resultados ficticios ni dejan un bloqueo permanente; un proceso no libera un bloqueo que ya pertenezca a otro.
+
+### Comprobación antes de subir cambios
+
+```bash
+python -m pytest -q
+python -m compileall -q app seed
+git diff --check
+git status --short
+```
+
+Comprueba que no aparezcan bases de datos, respaldos, `.env` ni credenciales. Las pruebas específicas de Redis desconectan únicamente su propio suscriptor, no todos los clientes del servidor. Todas las pruebas de IA siguen usando datos ficticios y transportes controlados; pasar la suite no verifica cuota real de Google ni aptitud clínica.

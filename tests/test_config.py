@@ -17,9 +17,13 @@ def test_invalid_secret_rejected():
 
 
 def test_secret_values_excluded_from_configuration_repr():
-    settings = Settings(jwt_secret="private-jwt-value", gemini_key="private-gemini-value")
+    settings = Settings(jwt_secret="private-jwt-value", gemini_key="private-gemini-value",
+                        database_url="postgresql://user:private-database-value@localhost/db",
+                        redis_url="redis://:private-redis-value@localhost/0")
     assert "private-jwt-value" not in repr(settings)
     assert "private-gemini-value" not in repr(settings)
+    assert "private-database-value" not in repr(settings)
+    assert "private-redis-value" not in repr(settings)
 
 
 @pytest.mark.parametrize("overrides", [
