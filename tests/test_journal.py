@@ -43,3 +43,14 @@ def test_alerts_created_before_ai_and_private(client, user, other_user):
     assert acknowledged.json()["acknowledged_at"] is not None
     assert client.delete(f"/api/journal/{response.json()['entry']['id']}", headers=user["headers"]).status_code == 204
     assert client.get(f"/api/alerts/{alert['id']}", headers=user["headers"]).json()["entry_id"] is None
+
+
+def test_empty_update_does_not_create_a_version_or_event(client, app, user):
+    from unittest.mock import AsyncMock
+    entry = create_entry(client, user).json()["entry"]
+    app.state.events.publish = AsyncMock(return_value=True)
+    response = client.patch(f"/api/journal/{entry['id']}", headers=user["headers"], json={})
+    assert response.status_code == 200
+    assert response.json()["entry"] == entry
+    app.state.events.publish.assert_not_awaited()
+    assert client.get(f"/api/journal/{entry['id']}", headers=user["headers"]).json() == entry
