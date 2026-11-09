@@ -1,5 +1,6 @@
 import re
 import unicodedata
+from copy import deepcopy
 from dataclasses import dataclass
 
 from app.models.entities import SafetyAlert
@@ -55,7 +56,7 @@ class SafetyService:
         return RiskAssessment("none", [])
 
     def guidance(self, country: str, level: str) -> dict:
-        resources = self.settings.emergency_resources.get(country, {})
+        resources = deepcopy(self.settings.emergency_resources.get(country, {}))
         return {
             "risk_level": level,
             "message": "Lamento que estés pasando por esto. Tu seguridad es lo más importante. No tienes que afrontarlo a solas.",
