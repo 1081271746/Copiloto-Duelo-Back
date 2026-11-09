@@ -70,3 +70,23 @@ def test_recorded_offsets_survive_create_and_edit(client, user):
                  json={"recorded_at": "2026-01-02T12:00:00+03:00"})
     loaded = client.get(f"/api/journal/{entry_id}", headers=user["headers"]).json()
     assert datetime.fromisoformat(loaded["recorded_at"]) == datetime.fromisoformat("2026-01-02T09:00:00+00:00")
+
+
+def test_deleting_entry_preserves_activity_and_minimal_alert(client, app, settings, user):
+    from tests.test_analysis import configure_analyzer
+    configure_analyzer(app, settings)
+    entry_id = create_entry(client, user).json()["entry"]["id"]
+    result = client.post(f"/api/journal/{entry_id}/analyze", headers=user["headers"]).json()
+    analysis_id = result["analysis"]["id"]
+    exercise_id = result["recommendations"][0]["id"]
+    assert client.post(f"/api/exercises/{exercise_id}/complete", headers=user["headers"],
+                       json={"analysis_id": analysis_id, "notes": "A fictional completion"}).status_code == 201
+    changed = client.patch(f"/api/journal/{entry_id}", headers=user["headers"],
+                           json={"content": "Quiero morir"}).json()
+    alert_id = changed["safety_alert"]["id"]
+    assert client.delete(f"/api/journal/{entry_id}", headers=user["headers"]).status_code == 204
+    history = client.get("/api/exercise-history", headers=user["headers"]).json()
+    assert len(history) == 1 and history[0]["analysis_id"] is None
+    assert client.get(f"/api/alerts/{alert_id}", headers=user["headers"]).json()["entry_id"] is None
+    assert client.get(f"/api/analyses/{analysis_id}", headers=user["headers"]).status_code == 404
+    assert client.get("/api/users/me", headers=user["headers"]).status_code == 200
