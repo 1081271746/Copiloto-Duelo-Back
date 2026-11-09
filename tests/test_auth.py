@@ -68,3 +68,14 @@ def test_invalid_claim_shapes_are_rejected(client, user, settings, field, value)
     claims[field] = value
     token = jwt.encode(claims, settings.jwt_secret, algorithm="HS256")
     assert client.get("/api/users/me", headers={"Authorization": f"Bearer {token}"}).status_code == 401
+
+
+def test_expired_database_session_overrides_valid_jwt(client, app, user, settings):
+    from app.models.entities import TokenSession
+    token = user["headers"]["Authorization"].split()[1]
+    claims = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"], audience=settings.jwt_audience)
+    with app.state.session_factory() as db:
+        session = db.get(TokenSession, claims["jti"])
+        session.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        db.commit()
+    assert client.get("/api/users/me", headers=user["headers"]).status_code == 401

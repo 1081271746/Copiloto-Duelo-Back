@@ -53,6 +53,11 @@ def authenticate(token: str, db, settings: Settings) -> tuple[User, dict]:
         session = db.get(TokenSession, claims["jti"])
         if not user or not session or session.revoked or session.user_id != user.id:
             raise ValueError()
+        session_expiry = session.expires_at
+        if session_expiry.tzinfo is None:
+            session_expiry = session_expiry.replace(tzinfo=timezone.utc)
+        if session_expiry <= datetime.now(timezone.utc):
+            raise ValueError()
         if claims["ver"] != user.token_version:
             raise ValueError()
         return user, claims
