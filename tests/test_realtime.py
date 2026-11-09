@@ -147,3 +147,34 @@ def test_binary_socket_messages_are_rejected_as_invalid_protocol(client, user):
             socket.send_bytes(b"binary-input")
             socket.receive_json()
     assert error.value.code == 1008
+
+
+def test_logout_closes_only_the_corresponding_socket_session(client, user):
+    response = client.post("/api/auth/login", json={"email": "first@example.com", "password": user["password"]})
+    second_user = {"headers": {"Authorization": f"Bearer {response.json()['access_token']}"}}
+    with client.websocket_connect("/api/ws") as first, client.websocket_connect("/api/ws") as second:
+        socket_auth(first, user)
+        socket_auth(second, second_user)
+        assert client.post("/api/auth/logout", headers=user["headers"]).status_code == 204
+        with pytest.raises(WebSocketDisconnect) as error:
+            first.receive_json()
+        assert error.value.code == 1008
+        second.send_json({"type": "ping"})
+        assert second.receive_json() == {"type": "pong"}
+
+
+def test_password_change_closes_user_sockets_but_not_other_users(client, user, other_user):
+    response = client.post("/api/auth/login", json={"email": "first@example.com", "password": user["password"]})
+    second_user = {"headers": {"Authorization": f"Bearer {response.json()['access_token']}"}}
+    with client.websocket_connect("/api/ws") as first, client.websocket_connect("/api/ws") as second, client.websocket_connect("/api/ws") as unrelated:
+        socket_auth(first, user)
+        socket_auth(second, second_user)
+        socket_auth(unrelated, other_user)
+        assert client.post("/api/users/me/password", headers=user["headers"], json={
+            "current_password": user["password"], "new_password": "ChangedPassword123!",
+        }).status_code == 204
+        for socket in (first, second):
+            with pytest.raises(WebSocketDisconnect):
+                socket.receive_json()
+        unrelated.send_json({"type": "ping"})
+        assert unrelated.receive_json() == {"type": "pong"}
