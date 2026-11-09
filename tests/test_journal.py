@@ -54,3 +54,19 @@ def test_empty_update_does_not_create_a_version_or_event(client, app, user):
     assert response.json()["entry"] == entry
     app.state.events.publish.assert_not_awaited()
     assert client.get(f"/api/journal/{entry['id']}", headers=user["headers"]).json() == entry
+
+
+def test_recorded_offsets_survive_create_and_edit(client, user):
+    from datetime import datetime
+    response = client.post("/api/journal", headers=user["headers"], json={
+        "content": "A timestamped reflection", "emotional_state": "sadness",
+        "recorded_at": "2026-01-01T12:00:00-05:00",
+    })
+    assert response.status_code == 201
+    entry_id = response.json()["entry"]["id"]
+    loaded = client.get(f"/api/journal/{entry_id}", headers=user["headers"]).json()
+    assert datetime.fromisoformat(loaded["recorded_at"]) == datetime.fromisoformat("2026-01-01T17:00:00+00:00")
+    client.patch(f"/api/journal/{entry_id}", headers=user["headers"],
+                 json={"recorded_at": "2026-01-02T12:00:00+03:00"})
+    loaded = client.get(f"/api/journal/{entry_id}", headers=user["headers"]).json()
+    assert datetime.fromisoformat(loaded["recorded_at"]) == datetime.fromisoformat("2026-01-02T09:00:00+00:00")
