@@ -56,3 +56,20 @@ def test_recommended_exercises_keep_their_analysis_link(client, app, settings, u
     assert history[0]["exercise_id"] == exercise_id
     counts = client.get("/api/tracking/summary", headers=user["headers"]).json()["counts"]
     assert counts["completed_exercises"] == 1 and counts["analyses"] == 1
+
+
+def test_acknowledging_ai_alert_does_not_override_current_risk(client, app, settings, user):
+    from tests.test_analysis import RESULT, configure_analyzer
+    configure_analyzer(app, settings, {**RESULT, "risk_level": "high"})
+    entry_id = create_entry(client, user).json()["entry"]["id"]
+    result = client.post(f"/api/journal/{entry_id}/analyze", headers=user["headers"]).json()
+    alert_id = result["safety_alert"]["id"]
+    assert client.post(f"/api/alerts/{alert_id}/acknowledge", headers=user["headers"]).status_code == 200
+    assert client.get("/api/recommendations", headers=user["headers"]).json()["reason"] == "safety_priority"
+    exercise_id = client.get("/api/exercises", headers=user["headers"]).json()[0]["id"]
+    assert client.post(f"/api/exercises/{exercise_id}/complete", headers=user["headers"], json={}).status_code == 409
+    configure_analyzer(app, settings)
+    later_id = create_entry(client, user, "Hoy pude hablar de mis recuerdos.").json()["entry"]["id"]
+    assert client.post(f"/api/journal/{later_id}/analyze", headers=user["headers"]).status_code == 201
+    assert client.get("/api/recommendations", headers=user["headers"]).json()["items"]
+    assert client.get(f"/api/alerts/{alert_id}", headers=user["headers"]).json()["risk_level"] == "high"
