@@ -31,7 +31,12 @@ class SocketMessage(StrictModel):
 
 
 async def receive_limited(socket: WebSocket, timeout: float):
-    text = await asyncio.wait_for(socket.receive_text(), timeout=timeout)
+    message = await asyncio.wait_for(socket.receive(), timeout=timeout)
+    if message["type"] == "websocket.disconnect":
+        raise WebSocketDisconnect(message.get("code", 1000))
+    text = message.get("text")
+    if not isinstance(text, str):
+        raise ValueError("text_message_required")
     if len(text.encode()) > 8192:
         await close_socket(socket, 1009)
         raise WebSocketDisconnect(1009)

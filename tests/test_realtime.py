@@ -125,3 +125,25 @@ async def test_failed_connection_does_not_block_other_clients():
     await manager.broadcast("user", {"type": "test"})
     assert broken not in manager.connections["user"]
     working.send_text.assert_awaited_once()
+
+
+@pytest.mark.parametrize(("payload", "code"), [
+    ("not-json", 1008), ("[]" , 1008), ('{"type":"ping","channel":"other"}', 1008),
+    ("x" * 8193, 1009),
+])
+def test_invalid_socket_messages_close_with_protocol_codes(client, user, payload, code):
+    with pytest.raises(WebSocketDisconnect) as error:
+        with client.websocket_connect("/api/ws") as socket:
+            socket_auth(socket, user)
+            socket.send_text(payload)
+            socket.receive_json()
+    assert error.value.code == code
+
+
+def test_binary_socket_messages_are_rejected_as_invalid_protocol(client, user):
+    with pytest.raises(WebSocketDisconnect) as error:
+        with client.websocket_connect("/api/ws") as socket:
+            socket_auth(socket, user)
+            socket.send_bytes(b"binary-input")
+            socket.receive_json()
+    assert error.value.code == 1008
