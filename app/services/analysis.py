@@ -31,20 +31,20 @@ class AnalysisService:
 
     async def analyze(self, entry_id, user):
         entry = UserRepository(self.db, JournalEntry).get(entry_id, user.id)
-        if not self.settings.gemini_key:
+        if not self.settings.groq_key:
             raise ServiceError("gemini_not_configured")
         version, content = entry.version, entry.content
         lock_key = f"copilot:analysis:{entry_id}"
         lock_token = str(uuid4())
         try:
             acquired = await self.events.redis.set(lock_key, lock_token, nx=True,
-                                                   ex=int(self.settings.gemini_timeout) + 30)
+                                                   ex=int(self.settings.groq_timeout) + 30)
         except RedisError:
             raise ServiceError("analysis_coordinator_unavailable") from None
         if not acquired:
             raise HTTPException(409, "analysis_in_progress")
         try:
-            await self.events.rate_limit(f"gemini:global:{self.settings.gemini_model}", self.settings.gemini_rpm, 60)
+            await self.events.rate_limit(f"groq:global:{self.settings.groq_model}", self.settings.groq_rpm, 60)
             day = datetime.now(timezone.utc).date().isoformat()
             await self.events.rate_limit(f"gemini:{user.id}:{day}", self.settings.daily_limit, 86400)
             previous = self.db.scalars(select(JournalEntry).where(
@@ -72,7 +72,7 @@ class AnalysisService:
             if risk != "none" or pending:
                 result.recommended_categories = []
             analysis = EmotionalAnalysis(user_id=user.id, entry_id=entry.id, entry_version=version,
-                                          result=result.model_dump(mode="json"), model=self.settings.gemini_model)
+                                          result=result.model_dump(mode="json"), model=self.settings.groq_model)
             self.db.add(analysis)
             alert = None
             if RISK_LEVELS[risk] > RISK_LEVELS[deterministic.level]:

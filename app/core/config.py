@@ -21,10 +21,10 @@ class Settings:
     cors_origins: list[str] = field(default_factory=lambda: [
         origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:4200").split(",") if origin.strip()
     ])
-    gemini_key: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY", ""), repr=False)
-    gemini_model: str = field(default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
-    gemini_timeout: float = field(default_factory=lambda: float(os.getenv("GEMINI_TIMEOUT_SECONDS", "20")))
-    gemini_rpm: int = field(default_factory=lambda: int(os.getenv("GEMINI_REQUESTS_PER_MINUTE", "5")))
+    groq_key: str = field(default_factory=lambda: os.getenv("GROQ_API_KEY", ""), repr=False)
+    groq_model: str = field(default_factory=lambda: os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"))
+    groq_timeout: float = field(default_factory=lambda: float(os.getenv("GROQ_TIMEOUT_SECONDS", "20")))
+    groq_rpm: int = field(default_factory=lambda: int(os.getenv("GROQ_REQUESTS_PER_MINUTE", "5")))
     daily_limit: int = field(default_factory=lambda: int(os.getenv("AI_DAILY_USER_LIMIT", "20")))
     default_country: str = field(default_factory=lambda: os.getenv("DEFAULT_COUNTRY", "CO"))
     emergency_resources: dict = field(default_factory=lambda: json.loads(os.getenv(
@@ -35,14 +35,14 @@ class Settings:
     def validate(self) -> None:
         if len(self.jwt_secret.strip()) < 32:
             raise RuntimeError("JWT_SECRET must contain at least 32 characters")
-        if self.token_minutes < 1 or self.daily_limit < 1 or self.gemini_rpm < 1:
+        if self.token_minutes < 1 or self.daily_limit < 1 or self.groq_rpm < 1:
             raise RuntimeError("Configured limits must be positive")
-        if not math.isfinite(self.gemini_timeout) or not 0 < self.gemini_timeout <= 300:
-            raise RuntimeError("Gemini timeout must be finite and between 0 and 300 seconds")
+        if not math.isfinite(self.groq_timeout) or not 0 < self.groq_timeout <= 300:
+            raise RuntimeError("Groq timeout must be finite and between 0 and 300 seconds")
         if not self.jwt_issuer.strip() or not self.jwt_audience.strip():
             raise RuntimeError("JWT issuer and audience are required")
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}", self.gemini_model):
-            raise RuntimeError("Invalid Gemini model identifier")
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}(?:/[A-Za-z0-9][A-Za-z0-9._-]{0,99})?", self.groq_model):
+            raise RuntimeError("Invalid Groq model identifier")
         if not re.fullmatch(r"[A-Z]{2}", self.default_country):
             raise RuntimeError("Invalid default country")
         if not self.cors_origins or any("*" in origin for origin in self.cors_origins):

@@ -12,7 +12,7 @@ from app.main import create_app
 def settings(tmp_path):
     return Settings(database_url=f"sqlite:///{tmp_path / 'test.db'}",
                     jwt_secret="test-only-secret-with-at-least-32-characters",
-                    gemini_key="",
+                    groq_key="",
                     redis_url=os.getenv("TEST_REDIS_URL", "redis://127.0.0.1:6379/15"))
 
 

@@ -12,7 +12,7 @@ from app.core.body_limit import BodyLimitMiddleware, SecurityHeadersMiddleware
 from app.core.config import Settings, get_settings
 from app.core.errors import ServiceError
 from app.database.session import Base, create_database
-from app.ai.gemini import GeminiAnalyzer
+from app.ai.groq import GroqAnalyzer
 from app.routers import analysis, auth, journal, library, tracking
 from app.services.events import RedisEventService
 from app.websocket.manager import ConnectionManager
@@ -45,7 +45,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.session_factory = session_factory
     app.state.manager = manager
     app.state.events = events
-    app.state.analyzer = GeminiAnalyzer(settings)
+    app.state.analyzer = GroqAnalyzer(settings)
     app.add_middleware(BodyLimitMiddleware)
     app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins,
                        allow_credentials=False, allow_methods=["GET", "POST", "PATCH", "DELETE"],
@@ -78,7 +78,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with session_factory() as db:
             db.execute(text("SELECT 1"))
         return {"status": "ok", "database": "ok", "redis": await events.healthy(),
-                "gemini_configured": bool(settings.gemini_key)}
+                "groq_configured": bool(settings.groq_key)}
 
     @app.get("/api", tags=["health"])
     def api_info():
