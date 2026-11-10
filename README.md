@@ -1,6 +1,6 @@
 # Co-Piloto de Duelo — Backend
 
-API en Python y FastAPI para acompañamiento emocional durante el duelo. Incluye diario privado, reflexión mediante Gemini, biblioteca de ejercicios, seguimiento, alertas y eventos privados mediante WebSockets y Redis Pub/Sub.
+API en Python y FastAPI para acompañamiento emocional durante el duelo. Incluye diario privado, reflexión mediante Groq, biblioteca de ejercicios, seguimiento, alertas y eventos privados mediante WebSockets y Redis Pub/Sub.
 
 **No sustituye psicología, psiquiatría, terapia ni atención médica. No realiza diagnósticos y no contacta automáticamente a emergencias.** Las cinco categorías del duelo son referencias opcionales y no lineales; no son una escala de recuperación ni etapas obligatorias.
 
@@ -10,10 +10,12 @@ Este repositorio contiene exclusivamente el backend. La documentación interacti
 
 - Python 3.12 o posterior.
 - Redis real en ejecución. No se usa un sustituto en memoria.
-- Una clave propia de Google Gemini para realizar análisis reales.
+- Una clave propia de Groq para realizar análisis reales.
 - Dependencias de `requirements.txt`.
 
-La disponibilidad de un modelo y las cuotas gratuitas dependen de la cuenta de Google. No se garantiza acceso gratuito ni una cuota estudiantil. `GEMINI_MODEL` permite seleccionar un modelo habilitado en tu cuenta.
+La disponibilidad de un modelo y sus cuotas dependen de la cuenta de Groq. No se garantiza acceso gratuito ni una cuota estudiantil. `GROQ_MODEL` permite seleccionar un modelo habilitado en tu cuenta.
+
+Para obtener una clave, inicia sesión en [Groq Console](https://console.groq.com/), abre [API Keys](https://console.groq.com/keys) y crea una clave para este backend. Guárdala únicamente como `GROQ_API_KEY` en tu `.env` local o gestor de secretos. Nunca la envíes al frontend, la pegues en documentación ni la subas a Git.
 
 ## 2. Ejecutar localmente
 
@@ -24,7 +26,7 @@ python -m pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edita `.env`. Configura `JWT_SECRET` con al menos 32 caracteres aleatorios. Puedes generar un valor localmente:
+Edita `.env`. Configura `GROQ_API_KEY` si vas a realizar análisis; puede permanecer vacía para trabajar con el resto del backend. Configura `JWT_SECRET` con al menos 32 caracteres aleatorios. Puedes generar un valor localmente:
 
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(48))"
@@ -72,10 +74,10 @@ La aplicación inicializa las tablas inexistentes y la biblioteca al arrancar. L
 | `ACCESS_TOKEN_MINUTES` | Duración de acceso; por defecto 30 minutos |
 | `REDIS_URL` | Conexión Redis; por defecto base 0 en `127.0.0.1:6379` |
 | `CORS_ORIGINS` | Orígenes explícitos separados por comas; inicialmente `http://localhost:4200` |
-| `GEMINI_API_KEY` | Clave propia de Gemini; vacía deshabilita únicamente el análisis |
-| `GEMINI_MODEL` | Modelo configurable; inicialmente `gemini-2.5-flash` |
-| `GEMINI_TIMEOUT_SECONDS` | Tiempo máximo de la llamada a Gemini; inicialmente 20 |
-| `GEMINI_REQUESTS_PER_MINUTE` | Límite global compartido para ese modelo; inicialmente 5 |
+| `GROQ_API_KEY` | Clave propia de Groq; vacía deshabilita únicamente el análisis |
+| `GROQ_MODEL` | Modelo configurable; inicialmente `openai/gpt-oss-120b` |
+| `GROQ_TIMEOUT_SECONDS` | Tiempo máximo total de la llamada a Groq; inicialmente 20 |
+| `GROQ_REQUESTS_PER_MINUTE` | Límite global compartido para ese modelo; inicialmente 5 |
 | `AI_DAILY_USER_LIMIT` | Máximo de intentos de análisis por usuario y día UTC; inicialmente 20 |
 | `DEFAULT_COUNTRY` | País del seed de demostración; inicialmente `CO` |
 | `EMERGENCY_RESOURCES_JSON` | Recursos de emergencia por código de país |
@@ -123,7 +125,7 @@ Si hay un proxy delante de la API, configura correctamente qué encabezados reen
 
 ```text
 app/
-  ai/             Cliente Gemini, sin acceso a la base de datos
+  ai/             Cliente Groq mediante HTTPX, sin acceso a la base de datos
   core/           Configuración, dependencias y errores
   database/       SQLAlchemy, sesiones y claves foráneas
   models/         Entidades y relaciones SQL
@@ -135,7 +137,7 @@ app/
   websocket/      Autenticación y administrador de conexiones
   main.py         Factoría de aplicación e inicialización
 seed/             Biblioteca y datos ficticios explícitos
-tests/            Pruebas con SQLite temporal, Redis real y Gemini controlado
+tests/            Pruebas con SQLite temporal, Redis real y Groq controlado
 ```
 
 Patrones aplicados:
@@ -148,7 +150,13 @@ Patrones aplicados:
 
 No se añadieron jerarquías de estrategias ni patrones decorativos sin una necesidad concreta.
 
-## 7. Análisis con Gemini
+## 7. Análisis con Groq
+
+`app/ai/groq.py` implementa `GroqAnalyzer` mediante HTTPX asíncrono, autenticación Bearer y `https://api.groq.com/openai/v1/chat/completions`. No se necesita el SDK de OpenAI ni el SDK de Groq.
+
+El modelo inicial `openai/gpt-oss-120b` figura en el [catálogo oficial](https://console.groq.com/docs/model/openai/gpt-oss-120b) y admite [salida estructurada](https://console.groq.com/docs/structured-outputs). Se solicita `json_schema` con `strict: true` para este modelo y `openai/gpt-oss-20b`, usando el esquema `AnalysisResult` existente sin modificarlo. `openai/gpt-oss-safeguard-20b` usa `json_schema` de mejor esfuerzo. Otros modelos configurados usan `json_object` con el esquema en las instrucciones y la misma validación Pydantic obligatoria; verifica que el modelo elegido admita ese modo. No hay reintentos automáticos ni degradación silenciosa si el proveedor rechaza el formato.
+
+La documentación acredita compatibilidad del modelo, no disponibilidad ni cuota en una cuenta particular. Las pruebas no realizan llamadas reales.
 
 El análisis se solicita explícitamente después de guardar una entrada:
 
@@ -157,26 +165,42 @@ POST /api/journal/{entry_id}/analyze
 ```
 
 1. Se verifica la propiedad de la entrada.
-2. Se comprueba la configuración de Gemini.
+2. Se comprueba la configuración de Groq.
 3. Se toma un bloqueo distribuido de corta duración por entrada.
 4. Se aplican cuotas atómicas en Redis, por modelo y por usuario.
 5. Se envían la entrada actual y hasta cinco entradas anteriores del mismo usuario, recortadas a 2.000 caracteres cada una.
-6. Gemini responde en JSON conforme al esquema de emociones, categorías, motivos, patrones, recomendaciones por categoría y nivel de riesgo.
+6. Groq responde en JSON conforme al esquema de emociones, categorías, motivos, patrones, recomendaciones por categoría y nivel de riesgo.
 7. Pydantic rechaza campos adicionales, categorías desconocidas, confianza fuera de rango o texto excesivo.
 8. El riesgo final nunca puede ser menor al detectado por las reglas independientes.
 9. Se guarda el análisis asociado a la versión de la entrada y se publican eventos.
 
-Gemini no recibe herramientas ni acceso a SQL. Las recomendaciones concretas provienen de la biblioteca local; Gemini solo propone categorías permitidas. Una actualización durante el análisis provoca `409`; no se guarda un resultado correspondiente a una versión diferente. Editar una entrada conserva el historial, pero sus recomendaciones antiguas dejan de considerarse actuales.
+Groq no recibe herramientas ni acceso a SQL. Las recomendaciones concretas provienen de la biblioteca local; Groq solo propone categorías permitidas. Una actualización durante el análisis provoca `409`; no se guarda un resultado correspondiente a una versión diferente. Editar una entrada conserva el historial, pero sus recomendaciones antiguas dejan de considerarse actuales.
 
-Errores controlados: `503` por falta de configuración, acceso denegado o indisponibilidad; `504` por timeout; `429` por cuotas; `502` por JSON inválido, respuesta incompleta o bloqueada. No se fabrica un análisis alternativo si Gemini falla. Los intentos fallidos también consumen el límite local para evitar reintentos ilimitados.
+Errores controlados: `503` por falta de configuración, acceso denegado (`401`/`403` del proveedor) o indisponibilidad; `504` por timeout; `429` por cuotas; `502` por JSON inválido, respuesta incompleta o bloqueada. No se fabrica un análisis alternativo si Groq falla. Los intentos fallidos también consumen el límite local para evitar reintentos ilimitados. Se rechazan negativas del modelo y llamadas a herramientas aunque incluyan contenido JSON. Los cuerpos de error del proveedor nunca se devuelven al cliente.
 
-**Privacidad:** este proceso envía contenido emocional sensible a Google. Antes de usarlo con personas reales se necesita consentimiento informado y revisar las condiciones de tratamiento y retención de datos del proveedor. No habilites IA con datos reales sin esa revisión.
+La descarga HTTP se lee por bloques, con un máximo de 100.000 bytes y un plazo total `GROQ_TIMEOUT_SECONDS` además del timeout de transporte. No se habilita SSE: `stream: false` solicita una respuesta completa, y leerla por bloques solo limita memoria y tiempo.
+
+**Privacidad:** este proceso envía contenido emocional sensible a Groq. Antes de usarlo con personas reales se necesita consentimiento informado y revisar las condiciones de tratamiento y retención de datos del nuevo proveedor. No habilites IA con datos reales sin esa revisión.
+
+### Compatibilidad de la migración
+
+No cambian endpoints, tablas, `AnalysisResult`, cuerpos de respuesta ni protocolo de eventos. En `/api/healthz`, `gemini_configured` se sustituye por `groq_configured`: indica presencia de clave, no comprueba acceso ni cuota remotos.
+
+Las únicas referencias históricas a Gemini que se conservan deliberadamente son:
+
+- Los códigos públicos de error `gemini_not_configured`, `gemini_access_denied`, `gemini_quota_exceeded`, `gemini_unavailable`, `gemini_timeout`, `gemini_invalid_response` y `gemini_incomplete_response`, junto con sus pruebas. Ahora describen fallos de Groq, pero mantienen exactamente los valores que un frontend existente puede interpretar y el formato `{"detail": "código"}`.
+- `app/ai/gemini.py` es solo un alias de importación de `GroqAnalyzer`; conserva el módulo anterior sin mantener un cliente ni llamadas a Google. La aplicación usa directamente el módulo nuevo.
+- La clave Redis diaria `gemini:<user_id>:<fecha_UTC>` conserva el contador ya consumido por cada usuario durante el cambio de proveedor. El límite global por modelo usa `groq:global:<modelo>`.
+- El marcador ficticio `seed-fixture-not-gemini` permanece para no reinterpretar el historial de demostración; nunca identifica un análisis real.
+- Una prueba de configuración comprueba que variables antiguas `GEMINI_*` no habilitan la nueva integración.
+
+Las variables de ejecución son exclusivamente `GROQ_*`; no hay fallback al proveedor anterior. Al actualizar una instalación, edita manualmente tu `.env` privado según `.env.example`, configura la nueva clave y reinicia el proceso. No copies `.env.example` encima de un `.env` existente: sobrescribiría tu configuración. No se modifica ni se migra automáticamente ningún `.env`, análisis histórico o dato de usuarios.
 
 ## 8. Seguridad emocional
 
-La creación y edición del diario ejecutan reglas determinísticas sin llamar a Gemini. Las reglas normalizan acentos y buscan señales explícitas en español e inglés. La IA puede complementar y elevar el nivel, no rebajarlo.
+La creación y edición del diario ejecutan reglas determinísticas sin llamar a Groq. Las reglas normalizan acentos y buscan señales explícitas en español e inglés. La IA puede complementar y elevar el nivel, no rebajarlo.
 
-Los niveles son `none`, `low`, `moderate`, `high` y `critical`. Las alertas guardan códigos de regla, nivel, origen y orientación, sin copiar fragmentos del diario. No se escriben entradas, contraseñas ni respuestas de Gemini en logs.
+Los niveles son `none`, `low`, `moderate`, `high` y `critical`. Las alertas guardan códigos de regla, nivel, origen y orientación, sin copiar fragmentos del diario. No se escriben entradas, contraseñas ni respuestas de Groq en logs.
 
 Ante riesgo se entrega un mensaje empático, contacto con alguien de confianza, orientación profesional y recursos de la ubicación configurada. Se suspenden las recomendaciones genéricas. Marcar una alerta como leída no equivale a certificar que el riesgo desapareció. Se mantiene el bloqueo de actividades cuando hay alertas pendientes o señales actuales.
 
@@ -235,7 +259,7 @@ Todos llevan el prefijo `/api`. Salvo salud, documentación, registro y login, r
 | Método | Ruta | Función |
 |---|---|---|
 | GET | `/api` | Información de la API |
-| GET | `/api/healthz` | SQL, suscriptor Redis y presencia de configuración Gemini |
+| GET | `/api/healthz` | SQL, suscriptor Redis y presencia de configuración Groq |
 | POST | `/api/auth/register` | Registrar |
 | POST | `/api/auth/login` | Iniciar sesión |
 | POST | `/api/auth/logout` | Revocar sesión |
@@ -243,7 +267,7 @@ Todos llevan el prefijo `/api`. Salvo salud, documentación, registro y login, r
 | POST | `/api/users/me/password` | Cambiar contraseña y revocar sesiones |
 | POST / GET | `/api/journal` | Crear / listar entradas |
 | GET / PATCH / DELETE | `/api/journal/{entry_id}` | Consultar / editar / eliminar |
-| POST | `/api/journal/{entry_id}/analyze` | Analizar con Gemini |
+| POST | `/api/journal/{entry_id}/analyze` | Analizar con Groq |
 | GET | `/api/journal/{entry_id}/analyses` | Historial de análisis de una entrada |
 | GET | `/api/analyses` | Historial privado de análisis |
 | GET | `/api/analyses/{analysis_id}` | Detalle de análisis |
@@ -280,7 +304,7 @@ Opcionalmente:
 TEST_REDIS_URL=redis://127.0.0.1:6379/15 python -m pytest -q
 ```
 
-Se prueban autenticación, revocación, validación, CRUD, aislamiento, Gemini con transporte HTTP controlado, timeouts, cuotas, historial, recomendaciones, cambios concurrentes, alertas, seed, seguimiento, WebSockets, Fan-Out entre instancias, desconexiones, reconexión de Redis y persistencia cuando falla la publicación. Las pruebas de Gemini no consumen solicitudes reales ni demuestran que una cuenta tenga cuota disponible.
+Se prueban autenticación, revocación, validación, CRUD, aislamiento, Groq con transporte HTTP controlado, ausencia de clave, errores `401`/`403`/`429`, desconexión, timeouts de transporte y totales, tamaños máximos, JSON inválido, respuestas incompletas, rechazos, validación Pydantic, modos de salida estructurada y configuración `GROQ_*`. También historial, recomendaciones, cambios concurrentes, alertas, seed, seguimiento, WebSockets, Fan-Out entre instancias, desconexiones, reconexión de Redis y persistencia cuando falla la publicación. Las pruebas de Groq no consumen solicitudes reales ni demuestran que una cuenta tenga cuota disponible.
 
 ## 12. PostgreSQL e integración posterior
 
@@ -298,7 +322,7 @@ Angular puede consumir JSON mediante Bearer JWT y usar el protocolo WebSocket de
 
 ## 13. Antes de un uso real
 
-- Configurar y verificar Gemini con una cuenta autorizada y cuota disponible.
+- Configurar y verificar Groq con una cuenta autorizada y cuota disponible.
 - Mantener Redis accesible de forma privada y usar una base SQL persistente con copias de seguridad.
 - Usar TLS, secretos propios por entorno y supervisión operativa sin contenido sensible.
 - Revisar clínicamente las reglas, ejercicios y recursos locales.
@@ -314,11 +338,11 @@ Los datos universitarios de demostración no convierten la aplicación en un ser
 
 Las mejoras de mantenimiento conservan las carpetas, las rutas HTTP, el protocolo de eventos públicos y las tablas existentes. No se añadieron dependencias ni se trasladaron módulos. Los rechazos nuevos se limitan a configuración inválida, mensajes malformados o credenciales inconsistentes.
 
-- `GEMINI_TIMEOUT_SECONDS` debe ser finito, mayor que cero y como máximo 300 segundos.
+- `GROQ_TIMEOUT_SECONDS` debe ser finito, mayor que cero y como máximo 300 segundos.
 - Emisor y audiencia JWT no pueden estar vacíos; el secreto tampoco puede consistir en espacios.
 - Los orígenes CORS deben tener la forma `https://dominio:puerto`, sin rutas, credenciales, fragmentos ni comodines. Las solicitudes preflight conservan su funcionamiento.
 - Los recursos de emergencia deben ser un objeto por país con código de dos letras mayúsculas, textos no vacíos y enlaces HTTP/HTTPS sin credenciales.
-- Los nombres de modelo no aceptan rutas ni parámetros de URL.
+- Los nombres de modelo aceptan un identificador o `organización/modelo`, sin segmentos relativos, URL ni parámetros.
 - Las representaciones de configuración ocultan secretos y conexiones SQL/Redis, porque estas últimas también pueden contener credenciales.
 
 El acceso se contrasta tanto con la expiración JWT como con la sesión persistida. Cerrar una sesión no revoca otras sesiones del mismo usuario; cambiar la contraseña sí las revoca todas. La misma distinción se comprueba para conexiones WebSocket.
@@ -362,7 +386,7 @@ Para restaurar, detén todas las instancias, conserva primero una copia de la ba
 
 Crear entradas o registrar ejercicios no es idempotente: no repitas automáticamente un `POST` tras perder la conexión sin comprobar primero el historial. Un bloqueo de análisis impide ejecuciones simultáneas para esa entrada, pero no deduplica intentos sucesivos ya finalizados.
 
-Una edición vacía del diario conserva versión y fecha, y no publica un evento nuevo. Borrar una entrada no borra el registro de ejercicios realizados, pero elimina su vínculo al análisis eliminado. Los errores de Gemini no producen resultados ficticios ni dejan un bloqueo permanente; un proceso no libera un bloqueo que ya pertenezca a otro.
+Una edición vacía del diario conserva versión y fecha, y no publica un evento nuevo. Borrar una entrada no borra el registro de ejercicios realizados, pero elimina su vínculo al análisis eliminado. Los errores de Groq no producen resultados ficticios ni dejan un bloqueo permanente; un proceso no libera un bloqueo que ya pertenezca a otro.
 
 ### Comprobación antes de subir cambios
 
@@ -373,4 +397,4 @@ git diff --check
 git status --short
 ```
 
-Comprueba que no aparezcan bases de datos, respaldos, `.env` ni credenciales. Las pruebas específicas de Redis desconectan únicamente su propio suscriptor, no todos los clientes del servidor. Todas las pruebas de IA siguen usando datos ficticios y transportes controlados; pasar la suite no verifica cuota real de Google ni aptitud clínica.
+Comprueba que no aparezcan bases de datos, respaldos, `.env` ni credenciales. Las pruebas específicas de Redis desconectan únicamente su propio suscriptor, no todos los clientes del servidor. Todas las pruebas de IA siguen usando datos ficticios y transportes controlados; pasar la suite no verifica cuota real de Groq ni aptitud clínica.

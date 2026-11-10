@@ -30,7 +30,7 @@ def seed_demo(db, settings, password: str):
         analysis = EmotionalAnalysis(user_id=user.id, entry_id=entry.id, entry_version=1,
             model="seed-fixture-not-gemini",
             result={"emotions": [state], "categories": [],
-                    "summary": "Dato ficticio de demostración; no fue generado por Gemini.",
+                    "summary": "Dato ficticio de demostración; no fue generado por IA.",
                     "patterns": [], "recommended_categories": ["acceptance"] if number == 1 else [],
                     "risk_level": assessment.level})
         db.add(analysis)
