@@ -29,9 +29,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        Base.metadata.create_all(engine)
+        if engine.dialect.name == "sqlite":
+            Base.metadata.create_all(engine)
+
         with session_factory() as db:
             seed_library(db)
+
         await events.start()
         yield
         await events.stop()
